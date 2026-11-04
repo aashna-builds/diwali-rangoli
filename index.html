@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <title>Diwali Cymatics</title>
 <style>
 html,body{margin:0;height:100%;background:#07020f;overflow:hidden;font-family:Georgia,serif}
@@ -26,13 +26,22 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 .tb .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#ff2d4a;margin-right:8px;box-shadow:0 0 10px #ff2d4a;animation:rb 1s infinite}
 @keyframes rb{50%{opacity:.25}}
 #toast{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);max-width:min(560px,86vw);text-align:center;color:#ffe9a8;font-size:14px;line-height:1.4;padding:10px 16px;border-radius:12px;background:rgba(20,5,35,.78);box-shadow:0 0 24px rgba(255,80,170,.35);opacity:0;transition:opacity .5s;pointer-events:none;z-index:6}
+html,body{touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+@media (hover:none),(max-width:700px){
+  #hint{bottom:calc(66px + env(safe-area-inset-bottom));font-size:11px;letter-spacing:.14em;padding:0 20px}
+  .tb{padding:13px 9px;font-size:12px;letter-spacing:.08em}
+  #tools{left:4px!important;bottom:calc(6px + env(safe-area-inset-bottom))!important;gap:0!important}
+  #snd{right:4px!important;bottom:calc(6px + env(safe-area-inset-bottom))!important;padding:13px 9px!important;font-size:12px!important}
+  #en{font-size:clamp(44px,17vw,110px)}
+  #hd{top:calc(5vh + env(safe-area-inset-top))}
+}
 </style><link href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap" rel="stylesheet"></head><body>
 <canvas id="c"></canvas><div id="ring"></div><div id="cur"></div>
 <div id="hd"><div id="en">Happy Diwali</div><div id="hi">शुभ दीपावली</div></div>
 <div id="tools" style="position:fixed;left:14px;bottom:12px;display:flex;gap:6px;z-index:3"><div id="trackbtn" class="tb">♫ Aarti</div><div id="leadbtn" class="tb">♪ bansuri</div></div>
 <div id="toast"></div>
 <div id="snd" style="position:fixed;right:18px;bottom:14px;color:#ffd27a;font-size:13px;letter-spacing:.2em;text-shadow:0 0 10px #ff4fa3;cursor:none;opacity:.55;z-index:3;padding:8px">♪ tap to start</div>
-<div id="hint">move · bend the sand &nbsp;|&nbsp; click · ripple + sound &nbsp;|&nbsp; M · music &nbsp;|&nbsp; N · instrument &nbsp;|&nbsp; T · change tune &nbsp;|&nbsp; space · pause &nbsp;|&nbsp; ← → · petals &nbsp;|&nbsp; S · save png</div>
+<div id="hint" data-touch="tap · drag to play · tap the buttons to change music">move · bend the sand &nbsp;|&nbsp; click · ripple + sound &nbsp;|&nbsp; M · music &nbsp;|&nbsp; N · instrument &nbsp;|&nbsp; T · change tune &nbsp;|&nbsp; space · pause &nbsp;|&nbsp; ← → · petals &nbsp;|&nbsp; S · save png</div>
 <script>
 const cv=document.getElementById('c');
 const gl=cv.getContext('webgl2',{preserveDrawingBuffer:true});
@@ -62,6 +71,7 @@ float neon(float f,float w){ // glow around nodal line
 }
 void main(){
   vec2 uv=(gl_FragCoord.xy-.5*R)/min(R.x,R.y)*2.0;
+  if(R.x<R.y)uv*=.8;
   // gentle lens-warp toward the cursor
   vec2 dm=uv-MS;float dl=length(dm);
   uv+=dm*exp(-dl*dl*2.5)*-.08*(.4+E);
@@ -171,7 +181,8 @@ let moved=0,lx=null,ly=null;
 let dismissT=null,holdGreeting=false,counting=false;const STAY_MS=0;
 function dismiss(){if(holdGreeting||dismissT)return;dismissT=setTimeout(()=>document.getElementById('hd').classList.add('gone'),STAY_MS)}
 addEventListener('pointermove',e=>{if(lx!==null)moved+=Math.hypot(e.clientX-lx,e.clientY-ly);lx=e.clientX;ly=e.clientY;if(moved>12)dismiss()});
-addEventListener('pointermove',setM);addEventListener('pointerrawupdate',setM,true);
+addEventListener('pointermove',setM);
+addEventListener('pointerup',e=>{if(e.pointerType==='touch'){cx=-100;cy=-100;curEl.style.transform='translate3d(-100px,-100px,0)'}});addEventListener('pointerrawupdate',setM,true);
 addEventListener('pointerdown',e=>{dismiss();setM(e);pulse=0;pick()});
 addEventListener('keydown',e=>{dismiss();
   if(e.code==='Space'){paused=!paused;e.preventDefault()}
@@ -214,9 +225,18 @@ function setTrack(name,fresh=true){
 }
 function nextTrack(){setTrack(TRACK_ORDER[(TRACK_ORDER.indexOf(TRACK)+1)%TRACK_ORDER.length])}
 
+let silentEl=null;
+function unlockAudio(){
+  try{if(navigator.audioSession)navigator.audioSession.type='playback'}catch(e){}   // iOS 17+: play even with the silent switch on
+  try{if(!silentEl){silentEl=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');silentEl.loop=true;silentEl.volume=.01}
+      silentEl.play().catch(()=>{})}catch(e){}                                         // older iOS: an HTML audio element switches the audio session
+  if(!AC)return;
+  if(AC.state!=='running')AC.resume();
+  try{const b=AC.createBuffer(1,1,22050),sr=AC.createBufferSource();sr.buffer=b;sr.connect(AC.destination);sr.start(0)}catch(e){}
+}
 function startAudio(){
-  if(started){if(AC&&AC.state==='suspended')AC.resume();return}
-  started=true;AC=new (window.AudioContext||window.webkitAudioContext)();
+  if(started){unlockAudio();return}
+  started=true;AC=new (window.AudioContext||window.webkitAudioContext)();unlockAudio();
   master=AC.createGain();master.gain.value=0;
   const comp=AC.createDynamicsCompressor();comp.threshold.value=-18;comp.ratio.value=3;
   master.connect(comp);comp.connect(AC.destination);
@@ -425,19 +445,25 @@ function toggleMusic(){
 }
 document.getElementById('snd').addEventListener('pointerdown',e=>{e.stopPropagation();toggleMusic()});
 addEventListener('pointerdown',e=>{startAudio();burst(e.clientX/innerWidth)});
+['touchend','click'].forEach(ev=>addEventListener(ev,()=>{startAudio();unlockAudio()},{passive:true}));
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&AC&&AC.state!=='running')AC.resume()});
 addEventListener('keydown',e=>{if(e.key==='m'||e.key==='M')toggleMusic();else startAudio()});
+let pcx=null,pcy=null;
 addEventListener('pointermove',e=>{
-  if(!started)return;const sp=Math.min(1,Math.hypot(e.movementX||0,e.movementY||0)/40);
+  const dx=pcx===null?0:e.clientX-pcx,dy=pcy===null?0:e.clientY-pcy;pcx=e.clientX;pcy=e.clientY;
+  if(!started)return;const sp=Math.min(1,Math.hypot(dx,dy)/40);
   if(sp>.15)cursorChime(e.clientX/innerWidth,e.clientY/innerHeight,sp);
 });
+addEventListener('pointerup',()=>{pcx=null;pcy=null});
 
 function toast(msg,ms=2200){const t=document.getElementById('toast');t.textContent=msg;t.style.opacity=1;clearTimeout(toast._t);toast._t=setTimeout(()=>t.style.opacity=0,ms)}
 document.getElementById('leadbtn').addEventListener('pointerdown',e=>{e.stopPropagation();nextLead()});
 document.getElementById('trackbtn').addEventListener('pointerdown',e=>{e.stopPropagation();nextTrack()});
 addEventListener('keydown',e=>{if(e.key==='n'||e.key==='N')nextLead();if(e.key==='t'||e.key==='T')nextTrack()});
 setTrack('aarti',false);
+if(touchDev){const h=document.getElementById('hint');h.textContent=h.dataset.touch;addEventListener('pointerdown',()=>{h.style.transition='opacity 1s';h.style.opacity=0},{once:true})}
 function fit(){cv.width=Math.round(innerWidth*scale);cv.height=Math.round(innerHeight*scale);gl.viewport(0,0,cv.width,cv.height)}
-let scale=Math.min(devicePixelRatio||1,1.5);const maxScale=scale;let ema=16,fc=0,lastAdj=0;
+const touchDev=matchMedia('(hover:none)').matches;let scale=Math.min(devicePixelRatio||1,touchDev?1.25:1.5);const maxScale=scale;let ema=16,fc=0,lastAdj=0;
 addEventListener('resize',fit);fit();
 let Ks=K;
 function frame(n){
@@ -458,7 +484,7 @@ function frame(n){
   tr[0]=[sx,sy];
   for(let i=1;i<8;i++){const g=1-Math.pow(.002,dt*(1.0-i*.08));tr[i][0]+=(tr[i-1][0]-tr[i][0])*g;tr[i][1]+=(tr[i-1][1]-tr[i][1])*g}
   pulse+=dt;
-  gl.uniform2fv(uTR,new Float32Array(tr.flat()));gl.uniform1f(uE,E);gl.uniform1f(uPT,pulse);gl.uniform2f(uMS,sx,sy);
+  gl.uniform2fv(uTR,new Float32Array(tr.flat()));gl.uniform1f(uE,E);gl.uniform1f(uPT,pulse);{const kf=(innerHeight/Math.min(innerWidth,innerHeight))*(innerWidth<innerHeight?.8:1);gl.uniform2f(uMS,sx*kf,sy*kf)}
   gl.uniform2f(uR,cv.width,cv.height);gl.uniform1f(uT,t);
   gl.uniform2f(uA,cur[0]+sx*.9,cur[1]+sy*.9);gl.uniform2f(uB,cur2[0]-sy*.7,cur2[1]+sx*.7);
   gl.uniform1f(uK,Math.round(Ks/2)*2);beat*=Math.pow(.02,dt);gl.uniform1f(uM,Math.min(1,.5+.5*Math.sin(t*.5)+beat*.35));
